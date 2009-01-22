@@ -1,11 +1,9 @@
+#!/usr/bin/perl
 
 use strict;
 use warnings;
 
-use Data::Dumper;
-
-my @result = sort map {"@$_"} permute(qw(D L S V));
-warn(Data::Dumper->Dump([\@result]));
+print sort map {"@$_\n"} permute(@ARGV);
 
 sub permute {
 	my (@elements) = @_;
@@ -13,5 +11,4 @@ sub permute {
 	my $first = shift @elements;
 	return [$first], map {[$first, @$_], [@$_]} permute(@elements);
 }
-
 
