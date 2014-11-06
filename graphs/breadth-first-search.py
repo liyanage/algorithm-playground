@@ -6,6 +6,12 @@ class Node(object):
         self.adjacent = []
         self.value = value
     
+    def connect_to(self, other_node):
+        if other_node in self.adjacent:
+            return
+        self.adjacent.append(other_node)
+        other_node.connect_to(self)
+    
     def __repr__(self):
         return '<Node {}>'.format(self.value)
     
@@ -32,12 +38,12 @@ b = Node('b')
 c = Node('c')
 d = Node('d')
 
-a.adjacent.append(b)
-b.adjacent.append(c)
-c.adjacent.append(a)
-c.adjacent.append(d)
-b.adjacent.append(d)
-#a.adjacent.append(d)
+a.connect_to(b)
+b.connect_to(c)
+#c.connect_to(a)
+c.connect_to(d)
+#b.connect_to(d)
+#a.connect_to(d)
 
 
 print shortest_path(a, d)
