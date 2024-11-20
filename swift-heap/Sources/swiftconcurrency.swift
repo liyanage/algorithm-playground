@@ -8,29 +8,6 @@ import Foundation
 import ArgumentParser
 import OSLog
 
-actor LineBuffer {
-    var unsortedLinesWithNumbers: [(Int, String)] = []
-    
-    func append(value: (Int, String)) {
-        unsortedLinesWithNumbers.append(value)
-    }
-    
-    func sortedLines() -> [String] {
-        unsortedLinesWithNumbers.sorted { pairA, pairB in
-            return pairA.0 < pairB.0
-        }.map { pair in
-            pair.1
-        }
-    }
-    
-    func sortedPairs() -> [(Int, String)] {
-        unsortedLinesWithNumbers.sorted { pairA, pairB in
-            return pairA.0 < pairB.0
-        }
-    }
-}
-
-
 @main
 struct swiftconcurrency: AsyncParsableCommand {
 
@@ -53,6 +30,30 @@ struct swiftconcurrency: AsyncParsableCommand {
 extension Regex : @unchecked @retroactive Sendable {
 }
 
+struct Line: IntegerRepresentable {
+    var lineNumber: Int
+    var text: String
+    
+    var integerRepresentation: Int {
+        get {
+            return self.lineNumber
+        }
+    }
+}
+
+//typealias Line = (lineNumber: Int, text: String)
+
+
+extension Int: IntegerRepresentable {
+    var integerRepresentation: Int {
+        get {
+            return self
+        }
+    }
+}
+
+
+
 struct Converter {
     
     let url: URL
@@ -67,32 +68,31 @@ struct Converter {
         let lines = splitLines(fileContents)
         print("line count: \(lines.count)")
 
-        let linesWithNumbers = lines.enumerated()
+        let linesWithNumbers = lines.enumerated().map { (lineNumber: Int, text: String) in
+            Line(lineNumber: lineNumber, text: text)
+        }
 
         let signposter = OSSignposter()
         let signpostID = signposter.makeSignpostID()
 
         var state = signposter.beginInterval("processLines", id: signpostID)
 
-        let buffer = LineBuffer()
-        await withThrowingTaskGroup(of: Void.self) { group in
-            for lineAndNumber in linesWithNumbers {
-                let (lineNumber, line) = lineAndNumber
-                group.addTask {
-                    await buffer.append(value: (lineNumber, try self.rewriteDoccMarkdownLineForPandoc(line)))
-                }
-            }
-        }
+        // Option 1, single-threaded, 30ms/3k lines
+//        let sorted = try linesWithNumbers.map { lineAndNumber in
+//            Line(lineNumber: lineAndNumber.lineNumber, text: try self.rewriteDoccMarkdownLineForPandoc(lineAndNumber.text))
+//        }
+//        signposter.endInterval("processLines", state)
+//        return
 
-        let unsortedLines = try await withThrowingTaskGroup(of: (Int, String).self) { group in
+        // Option 2, multithreaded, 10ms/3k lines unsorted
+        let unsortedLines = try await withThrowingTaskGroup(of: Line.self) { group in
             for lineAndNumber in linesWithNumbers {
-                let (lineNumber, line) = lineAndNumber
                 group.addTask {
-                    (lineNumber, try self.rewriteDoccMarkdownLineForPandoc(line))
+                    Line(lineNumber: lineAndNumber.lineNumber, text: try self.rewriteDoccMarkdownLineForPandoc(lineAndNumber.text))
                 }
             }
             
-            var unsortedProcessedLines: [(Int, String)] = []
+            var unsortedProcessedLines: [Line] = []
             for try await lineNumberAndLine in group {
                 unsortedProcessedLines.append(lineNumberAndLine)
             }
@@ -104,31 +104,44 @@ struct Converter {
         print("result line count: \(unsortedLines.count)")
 
         state = signposter.beginInterval("sortResults", id: signpostID)
+        let duration = ContinuousClock().measure {
+            
 
-        // Variant 1: min heap while reading lines
-        // 14ms for 60k items
-//        var sortedProcessedLines: [(Int, String)] = []
-//        var unsortedProcessedLinesHeap = MinHeap(content: [])
-//        for lineNumberAndLine in unsortedLines {
-//            unsortedProcessedLinesHeap.insert(lineNumberAndLine)
-////            print("heap count \(unsortedProcessedLinesHeap.content.count) min line \(unsortedProcessedLinesHeap.root?.lineNumber) new value \(lineNumberAndLine.0)")
-////            unsortedProcessedLinesHeap.validate()
-////            unsortedProcessedLinesHeap.dump()
-//            while let rootLineNumber = unsortedProcessedLinesHeap.root?.lineNumber, rootLineNumber == sortedProcessedLines.count {
-//                let minLine = unsortedProcessedLinesHeap.extractMin()
-//                sortedProcessedLines.append(minLine!)   
+            // Variant 1: min heap while reading lines
+            // 14ms for 60k items
+//            var sortedProcessedLines: [Line] = []
+//            var unsortedProcessedLinesHeap = MinHeap(content: [Line]())
+//            for lineNumberAndLine in unsortedLines {
+//                unsortedProcessedLinesHeap.insert(lineNumberAndLine)
+////                print("heap count \(unsortedProcessedLinesHeap.content.count) min line \(unsortedProcessedLinesHeap.root?.lineNumber) new value \(lineNumberAndLine.lineNumber)")
+////                unsortedProcessedLinesHeap.validate()
+////                unsortedProcessedLinesHeap.dump()
+//                while let rootLineNumber = unsortedProcessedLinesHeap.root?.lineNumber, rootLineNumber == sortedProcessedLines.count {
+//                    let minLine = unsortedProcessedLinesHeap.extractMin()
+//                    sortedProcessedLines.append(minLine!)
+//                }
 //            }
-//        }
 
-        // Variant 2: just sort everything
-        // 3ms for 60k items
-        let _: [(Int, String)] = unsortedLines.sorted { $0.0 < $1.0 }
-        
-//        for pair in sortedProcessedLines {
-//            print("\(pair.0) \(pair.1)")
-//        }
-        
+            // Variant 2: just sort everything
+            // 3ms for 60k items
+            let sortedProcessedLines: [Line] = unsortedLines.sorted { $0.lineNumber < $1.lineNumber }
+
+//            for line in sortedProcessedLines {
+//                print("\(line.lineNumber) \(line.text)")
+//            }
+            
+            // Variant 3: insert into sorted array
+            // 0.3ms for 3k items (
+//            var sorted: [Line?] = Array(repeating: nil, count: unsortedLines.count)
+//            for lineNumberAndLine in unsortedLines {
+//                sorted[lineNumberAndLine.lineNumber] = lineNumberAndLine
+//            }
+
+        }
+
         signposter.endInterval("sortResults", state)
+        
+        print("duration: \(duration)")
     }
     
     func splitLines(_ text: String) -> [String] {

@@ -7,17 +7,19 @@
 
 import Foundation
 
-typealias Line = (lineNumber: Int, text: String)
+protocol IntegerRepresentable {
+    var integerRepresentation: Int { get }
+}
 
-struct MinHeap {
+struct MinHeap<Element: IntegerRepresentable> {
 
-    var content: [Line]
+    var content: [Element]
     
-    init(content: [Line]) {
+    init(content: [Element]) {
         self.content = content
     }
     
-    var root: Line? {
+    var root: Element? {
         get {
             return content.isEmpty ? nil : content[0]
         }
@@ -47,12 +49,12 @@ struct MinHeap {
         let r = rightIndex(i)
         let count = content.count
         var smallest: Int
-        if l < count && content[l].lineNumber < content[i].lineNumber {
+        if l.integerRepresentation < count && content[l].integerRepresentation < content[i].integerRepresentation {
             smallest = l
         } else {
             smallest = i
         }
-        if r < count && content[r].lineNumber < content[smallest].lineNumber {
+        if r < count && content[r].integerRepresentation < content[smallest].integerRepresentation {
             smallest = r
         }
         if smallest != i {
@@ -68,7 +70,7 @@ struct MinHeap {
         }
     }
     
-    mutating func extractMin() -> Line? {
+    mutating func extractMin() -> Element? {
         guard let min = content.first else {
             return nil
         }
@@ -78,21 +80,27 @@ struct MinHeap {
         return min
     }
     
-    mutating func decreaseKey(_ i: Int, newValue: Line) {
+    mutating func decreaseKey(_ i: Int, newValue: Element) {
         assert(i < content.count)
-        assert(newValue.lineNumber < content[i].lineNumber, "New value must be smaller than existing value")
+        assert(newValue.integerRepresentation < content[i].integerRepresentation, "New value must be smaller than existing value")
         var currentIndex = i
         content[currentIndex] = newValue
-        while currentIndex > 0 && content[parentIndex(currentIndex)].lineNumber > content[currentIndex].lineNumber {
+        while currentIndex > 0 && content[parentIndex(currentIndex)].integerRepresentation > content[currentIndex].integerRepresentation {
             let parentIndex = parentIndex(currentIndex)
             content.swapAt(parentIndex, currentIndex)
             currentIndex = parentIndex
         }
     }
     
-    mutating func insert(_ value: Line) {
-        content.append((Int.max, ""))
-        decreaseKey(content.count - 1, newValue: value)
+    mutating func insert(_ newValue: Element) {
+        content.append(newValue)
+        let i = content.count - 1
+        var currentIndex = i
+        while currentIndex > 0 && content[parentIndex(currentIndex)].integerRepresentation > content[currentIndex].integerRepresentation {
+            let parentIndex = parentIndex(currentIndex)
+            content.swapAt(parentIndex, currentIndex)
+            currentIndex = parentIndex
+        }
     }
     
     func validate() {
@@ -103,12 +111,12 @@ struct MinHeap {
     }
     
     func _validateSubtree(_ parentIndex: Int) {
-        let parentValue = content[parentIndex].lineNumber
+        let parentValue = content[parentIndex].integerRepresentation
         for (label, childIndex) in [("left", leftIndex(parentIndex)), ("right", rightIndex(parentIndex))] {
             guard childIndex < content.count else {
                 continue
             }
-            let childValue = content[childIndex].lineNumber
+            let childValue = content[childIndex].integerRepresentation
             if childValue < parentValue {
                 print("\(label) child node \(childIndex) (\(childValue)) unexpectedly smaller than parent \(parentIndex) (\(parentValue))")
             }
@@ -123,7 +131,7 @@ struct MinHeap {
         }
         let height = Int(floor(log2(Float(content.count)))) + 1
         let leafLevelMaxNodeCount = Int(pow(2.0, Double(height - 1)))
-        let longestValueStringLength = String(content.map { $0.lineNumber }.max()!).count
+        let longestValueStringLength = String(content.map { $0.integerRepresentation }.max()!).count
         let leafLevelPaddingWidth = longestValueStringLength + 1
 
         let combinedMaxDigitsWidth = longestValueStringLength * leafLevelMaxNodeCount
@@ -140,7 +148,7 @@ struct MinHeap {
                 guard index < content.count else {
                     break
                 }
-                let valueString = String(content[index].lineNumber)
+                let valueString = String(content[index].integerRepresentation)
                 index += 1
                 let paddingLength = levelCellWidth - valueString.count
                 let leftPadding = String(repeating: " ", count: paddingLength / 2)
